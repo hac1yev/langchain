@@ -13,10 +13,10 @@ async function fromTemplate() {
 
 
     // this code format the prompt and add value into product_name 
-    // const wholePrompt = await prompt.format({
-    //     product_name: 'bicycle'
-    // })
-    // console.log(wholePrompt)
+    const wholePrompt = await prompt.format({
+        product_name: 'bicycle'
+    })
+    console.log(wholePrompt)
 
 
     // creating a chain: connecting the model with the prompt
@@ -38,9 +38,8 @@ async function fromMessage() {
     const response = await chain.invoke({
         teams: 'Man Utd'
     });
-
     console.log(response.content);
 }
 
 fromMessage();
-// fromTemplate();
+fromTemplate();
