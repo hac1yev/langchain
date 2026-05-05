@@ -12,14 +12,6 @@ const model = new ChatOpenAI({
   temperature: 0.7,
 });
 
-// Sample data that will be embedded and stored in the vector database
-const myData = [
-  "My name is John.",
-  "My name is Bob.",
-  "My favorite food is pizza.",
-  "My favorite food is pasta.",
-];
-
 // User question we want to answer using RAG (Retrieval-Augmented Generation)
 const question = "What this pdf about";
 

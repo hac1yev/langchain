@@ -1,10 +1,11 @@
 // Import vector store (in-memory), prompt builder, LLM, embeddings, and document structure
-import { MemoryVectorStore } from "@langchain/classic/vectorstores/memory";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
 import { Document } from "langchain";
-import { CheerioWebBaseLoader } from "@langchain/community/document_loaders/web/cheerio";
+import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
+import { Chroma } from "@langchain/community/vectorstores/chroma";
+import { ChromaClient } from "chromadb";
 
 // Initialize the LLM (chat model) with temperature for response creativity
 const model = new ChatOpenAI({
@@ -13,7 +14,13 @@ const model = new ChatOpenAI({
 });
 
 // User question we want to answer using RAG (Retrieval-Augmented Generation)
-const question = "What is Man Utd?";
+const question = "What this pdf about";
+
+const chromaClient = new ChromaClient({
+  host: "localhost",
+  port: 8000,
+  ssl: false,
+});
 
 async function main() {
   // Create embedding model to convert text into vectors
@@ -22,45 +29,54 @@ async function main() {
   });
 
   // create a loader
-  const loader = new CheerioWebBaseLoader('https://docs.langchain.com/oss/javascript/langchain/rag#expand-for-full-code-snippet');
-  const docs = await loader.load()
+  const loader = new PDFLoader("arayis.pdf", {
+    splitPages: false,
+  });
+  const docs = await loader.load();
 
   // split the docs
   const splitter = new RecursiveCharacterTextSplitter({
-    chunkSize: 200,
-    chunkOverlap: 20
+    separators: [". \n"],
   });
 
   const splittedDocs = await splitter.splitDocuments(docs);
 
-  // Initialize in-memory vector store
-  const vectorStore = new MemoryVectorStore(embeddings);
-  
-  // Convert raw text into Document objects and store them with embeddings
-  await vectorStore.addDocuments(
-    splittedDocs.map((content, index) => {
-      return new Document({
-        pageContent: content.pageContent,     // actual text
-        metadata: { id: index },  // optional metadata
-      });
-    }),
-  );
+  // Chroma only accepts primitive metadata values, so keep the useful fields
+  // and drop nested PDFLoader metadata such as the "pdf" object.
+  const chromaDocs = splittedDocs.map((doc, index) => {
+    return new Document({
+      pageContent: doc.pageContent,
+      metadata: {
+        id: index,
+        source: doc.metadata.source,
+      },
+    });
+  });
+
+  // Initialize Chroma vector store and add PDF chunks
+  const vectorStore = await Chroma.fromDocuments(chromaDocs, embeddings, {
+    collectionName: "foo",
+    index: chromaClient,
+  });
 
   // Create retriever to fetch top-2 most relevant documents
   const retriever = vectorStore.asRetriever({
-    k: 2 // return top 2 most similar documents
+    k: 2, // return top 2 most similar documents
   });
 
   // Retrieve relevant documents based on the question
-  const result = await retriever._getRelevantDocuments(question);
+  const result = await retriever.invoke(question);
 
   // Extract only text content from retrieved documents
-  const resultDocuments = result.map(result => result.pageContent);
+  const resultDocuments = result.map((result) => result.pageContent).join("\n\n");
 
   // Create prompt template combining system instructions + user input
   const template = ChatPromptTemplate.fromMessages([
-    ['system', 'Answer the users question based on the following context: {context}'],
-    ['human', '{input}']
+    [
+      "system",
+      "Answer the users question based on the following context: {context}",
+    ],
+    ["human", "{input}"],
   ]);
 
   // Chain prompt template with the model
@@ -69,7 +85,7 @@ async function main() {
   // Invoke LLM with question + retrieved context
   const response = await chain.invoke({
     input: question,
-    context: resultDocuments
+    context: resultDocuments,
   });
 
   // Output final generated answer
